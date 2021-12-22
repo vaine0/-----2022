@@ -10,7 +10,7 @@
  *                先读取sample_num个采样值(采样频率sample_num*1kHz), 并格式化为float;
  *                再DFT得到各频率分量; 最后根据频率分量计算THD(开方使用二分法)
  */
-// TODO 推测因为采样频率不对导致THD过大
+// TODO 推测因为采样频率不准导致THD过大
 
 #include <msp430g2553.h>
 
@@ -173,7 +173,7 @@ void refresh_THD(void)
     int n = 0;
     for(k=1; k<5; k++)
     {
-        for(n=0; n<8; n++)
+        for(n=0; n<sample_num; n++)
         {
             int idx = (n*k) % sample_num; // (n*k) mod sample_num
             real[k] += sample_nums[n]*Cos[idx];
