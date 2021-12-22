@@ -19,6 +19,7 @@
 
 #include <msp430g2553.h>
 
+
 // 采样点数
 #define sample_num 8 // 改变sample_num还需调整sample_gap, Cos[], Sin[]
 // 改变sample_num需要手动调整sample_gap, 使采样频率达到sample_num*1kHz
@@ -34,6 +35,204 @@ const float Sin[sample_num] = {0.000, 0.707, 1.000, 0.707, 0.000, -0.707, -1.000
 float THD = 0.000; // 全局变量THD, display_THD()始终显示THD; 计算函数refresh_THD()在计时中断进入, 不断更新算得的THD
 int sample_points[sample_num];
 float sample_nums[sample_num];
+
+void delay_1ms(void);
+void delay_nms(unsigned int k);
+void GPIO_Init(void);
+void timer0_init();
+void adc_init(void);
+void sampling(int n);
+float my_sqrt(float n);
+void refresh_THD(void);
+void display_THD(void);
+void clock_test(void);
+
+
+/*
+ * 主函数
+ */
+int main(void)
+{
+    WDTCTL = WDTPW | WDTHOLD; // stop watchdog timer
+    GPIO_Init();
+    adc_init();
+    timer0_init();
+    _EINT();          //开总中断
+    delay_nms(500);
+    while(1)
+    {
+        display_THD();
+        // clock_test();
+    }
+}
+
+
+/*
+ * 数码管显示 float THD (只显示 个位 & 小数部分前三位)
+ * 1 > THD >= 0
+ * 可能由于浮点数精度出现输出!=输入, 但是最多差0.001
+ */
+void display_THD(void)
+{
+    float n = THD;
+    unsigned int temp = (int)n;
+    n -= temp;
+    P2OUT = 0xFF; // 输出前全灭
+    P3OUT = BIT0; // 第一位
+    P2OUT = display_num[temp]; // 显示"x"
+    P2OUT &= 0xFE;             // 显示小数点
+    delay_nms(10);
+    unsigned int i;
+    for (i = 0; i < 3; i++)
+    {
+        P2OUT = 0xFF; // 输出前全灭
+        P3OUT = display_pos[i];
+        n = n * 10;
+        unsigned int temp = (int)n;
+        P2OUT = display_num[temp];
+        n -= temp;
+        delay_nms(10);
+    }
+}
+
+
+/*
+ * 定时器中断响应函数, 定时刷新THD的值
+ */
+#pragma vector=TIMER0_A0_VECTOR
+__interrupt void Timer0_A0(void)
+{
+    refresh_THD();
+    // P3OUT ^= BIT4;
+}
+
+
+/*
+ * 刷新THD.
+ * 先读取sample_num个采样值
+ * 再DFT得到各频率分量
+ * 最后根据频率分量计算THD
+ */
+void refresh_THD(void)
+{
+    // 数码管显示 '----'
+    P2OUT = 0xFF;
+    P3OUT = BIT0+BIT1+BIT2+BIT3;
+    P2OUT = 0xFD;
+    // 8kHz采样8次, 结果存在sample_points[]
+    int i = 0;
+    for(; i<sample_num; i++)
+    {
+        sampling(i);
+        int j = 0;
+        while(j<sample_gap) // j<5
+        {
+            j++;
+        }
+    }
+    // 将采样点值变为浮点数存在sample_nums[]
+    for(i=0; i<sample_num; i++)
+    {
+        sample_nums[i] = (float)(sample_points[i]) / 1023.0 * ref_vcc;
+    }
+    // DFT提取频率分量
+    float real[5] = {0.00, 0.00, 0.00, 0.00, 0.00};
+    float imag[5] = {0.00, 0.00, 0.00, 0.00, 0.00};
+    int k = 0;
+    int n = 0;
+    for(k=1; k<5; k++)
+    {
+        for(n=0; n<sample_num; n++)
+        {
+            int idx = (n*k) % sample_num; // (n*k) mod sample_num
+            real[k] += sample_nums[n]*Cos[idx];
+            imag[k] += sample_nums[n]*Sin[idx];
+        }
+    }
+    // 计算THD
+    THD =  real[2]*real[2] + real[3]*real[3] + real[4]*real[4];
+    THD += imag[2]*imag[2] + imag[3]*imag[3] + imag[4]*imag[4];
+    THD /= real[1]*real[1] + imag[1]*imag[1];
+    // 开根号
+    // THD = 0.5;
+    THD = my_sqrt(THD);
+    // 数码管结束显示 '----'
+    P2OUT = 0xFF;
+    P3OUT = 0x00;
+}
+
+
+/*
+ * 牛顿法求平方根
+ */
+float my_sqrt(float n)
+{
+    if (n <= 0.0)
+    {
+        return 0.0;
+    }
+    const float _JINGDU = 1e-4;
+    float _avg = n;
+    float last_avg = n;
+    _avg = (_avg + n / _avg) / 2;
+    float temp = _avg - last_avg;
+	if (temp<0) temp = -temp;
+    while ( temp > _JINGDU)
+    {
+        last_avg = _avg;
+        _avg = (_avg + n / _avg) / 2;
+        temp = _avg - last_avg;
+        if (temp<0) temp = -temp;
+    }
+    return _avg;
+
+    /*
+    * **方法太慢, 弃用**
+    * 用于开根求THD, THD一般都小于1
+    * 1 >= n >= 0
+    * 需要计算更大的开方就增大temp(0x0080<<a)和temp2(0x0040<<2a)
+    * 本质上是二分法, 从高位到低位 判断二进制数的每一位为1或0
+    */
+    // float temp  = 0.5;  // 判断小数位第一位是不是1
+    // float temp2 = 0.25; // temp的平方
+    // float result  = 0.0;// 结果
+    // float result2 = 0.0;// result的平方
+    // while(temp2 != 0.0)
+    // {
+    //     float temp_result2 = result2 + 2*result*temp + temp2;
+    //     if (temp_result2 <= n)
+    //     {
+    //         result += temp;
+    //         result2 = temp_result2;
+    //     }
+    //     temp  = temp  / 2; // 判断小数位下一位是不是1
+    //     temp2 = temp2 / 4;
+    // }
+    // return result;
+}
+
+
+/*
+ * 测试时钟频率, 找到能够达到采样频率的延迟
+ */
+void clock_test(void) // TODO 有问题, 但不知道哪里有问题
+{
+    int i = 0;
+    // 开始
+    P3OUT &= ~BIT4; // Clear P3.4 LED off
+    for(i=0; i<sample_num*3000; i++)// 3k次8次8kHz采样, 应该花费3s
+    {
+        sampling(i);
+        int j = 0;
+        while(j<sample_gap)// j<5
+        {
+            j++;
+        }
+    }
+    P3OUT |= BIT4; // Set P3.4 LED on
+    // 结束
+    delay_nms(100);
+}
 
 /*
  * 1ms延时函数
@@ -142,188 +341,5 @@ void sampling(int n)
         P3OUT |= BIT4; // Set P1.0 LED on
     }
     */
-}
-
-/*
- * 牛顿法求平方根
- */
-float my_sqrt(float n)
-{
-    if (n <= 0.0)
-    {
-        return 0.0;
-    }
-    const float _JINGDU = 1e-4;
-    float _avg = n;
-    float last_avg = n;
-    _avg = (_avg + n / _avg) / 2;
-    float temp = _avg - last_avg;
-	if (temp<0) temp = -temp;
-    while ( temp > _JINGDU)
-    {
-        last_avg = _avg;
-        _avg = (_avg + n / _avg) / 2;
-        temp = _avg - last_avg;
-        if (temp<0) temp = -temp;
-    }
-    return _avg;
-
-    /*
-    * **方法太慢, 弃用**
-    * 用于开根求THD, THD一般都小于1
-    * 1 >= n >= 0
-    * 需要计算更大的开方就增大temp(0x0080<<a)和temp2(0x0040<<2a)
-    * 本质上是二分法, 从高位到低位 判断二进制数的每一位为1或0
-    */
-    // float temp  = 0.5;  // 判断小数位第一位是不是1
-    // float temp2 = 0.25; // temp的平方
-    // float result  = 0.0;// 结果
-    // float result2 = 0.0;// result的平方
-    // while(temp2 != 0.0)
-    // {
-    //     float temp_result2 = result2 + 2*result*temp + temp2;
-    //     if (temp_result2 <= n)
-    //     {
-    //         result += temp;
-    //         result2 = temp_result2;
-    //     }
-    //     temp  = temp  / 2; // 判断小数位下一位是不是1
-    //     temp2 = temp2 / 4;
-    // }
-    // return result;
-}
-
-/*
- * 刷新THD.
- * 先读取sample_num个采样值
- * 再DFT得到各频率分量
- * 最后根据频率分量计算THD
- */
-void refresh_THD(void)
-{
-    P2OUT = 0xFF;
-    P3OUT = BIT0+BIT1+BIT2+BIT3;
-    P2OUT = 0xFD;
-    // 8kHz采样8次, 结果存在sample_points[]
-    int i = 0;
-    for(; i<sample_num; i++)
-    {
-        sampling(i);
-        int j = 0;
-        while(j<sample_gap) // j<5
-        {
-            j++;
-        }
-    }
-    // 将采样点值变为浮点数存在sample_nums[]
-    for(i=0; i<sample_num; i++)
-    {
-        sample_nums[i] = (float)(sample_points[i]) / 1023.0 * ref_vcc;
-    }
-    // DFT提取频率分量
-    float real[5] = {0.00, 0.00, 0.00, 0.00, 0.00};
-    float imag[5] = {0.00, 0.00, 0.00, 0.00, 0.00};
-    int k = 0;
-    int n = 0;
-    for(k=1; k<5; k++)
-    {
-        for(n=0; n<sample_num; n++)
-        {
-            int idx = (n*k) % sample_num; // (n*k) mod sample_num
-            real[k] += sample_nums[n]*Cos[idx];
-            imag[k] += sample_nums[n]*Sin[idx];
-        }
-    }
-    // 计算THD
-    THD =  real[2]*real[2] + real[3]*real[3] + real[4]*real[4];
-    THD += imag[2]*imag[2] + imag[3]*imag[3] + imag[4]*imag[4];
-    THD /= real[1]*real[1] + imag[1]*imag[1];
-    // 开根号
-    // THD = 0.5;
-    THD = my_sqrt(THD);
-    P2OUT = 0xFF;
-    P3OUT = 0x00;
-}
-
-
-/*
- * 定时器中断响应函数
- */
-#pragma vector=TIMER0_A0_VECTOR
-__interrupt void Timer0_A0(void)
-{
-    refresh_THD();
-    // P3OUT ^= BIT4;
-}
-
-
-/*
- * 数码管显示 float THD (只显示 个位 & 小数部分前三位)
- * 1 > THD >= 0
- * 可能由于浮点数精度出现输出!=输入, 但是最多差0.001
- */
-void display_THD(void)
-{
-    float n = THD;
-    unsigned int temp = (int)n;
-    n -= temp;
-    P2OUT = 0xFF; // 输出前全灭
-    P3OUT = BIT0; // 第一位
-    P2OUT = display_num[temp]; // 显示"x"
-    P2OUT &= 0xFE;             // 显示小数点
-    delay_nms(10);
-    unsigned int i;
-    for (i = 0; i < 3; i++)
-    {
-        P2OUT = 0xFF; // 输出前全灭
-        P3OUT = display_pos[i];
-        n = n * 10;
-        unsigned int temp = (int)n;
-        P2OUT = display_num[temp];
-        n -= temp;
-        delay_nms(10);
-    }
-}
-
-
-/*
- * 测试时钟频率, 找到能够达到采样频率的延迟
- */
-void clock_test(void) // TODO 有问题, 但不知道哪里有问题
-{
-    int i = 0;
-    // 开始
-    P3OUT &= ~BIT4; // Clear P3.4 LED off
-    for(i=0; i<sample_num*3000; i++)// 3k次8次8kHz采样, 应该花费3s
-    {
-        sampling(i);
-        int j = 0;
-        while(j<sample_gap)// j<5
-        {
-            j++;
-        }
-    }
-    P3OUT |= BIT4; // Set P3.4 LED on
-    // 结束
-    delay_nms(100);
-}
-
-
-/*
- * 主函数
- */
-int main(void)
-{
-    WDTCTL = WDTPW | WDTHOLD; // stop watchdog timer
-    GPIO_Init();
-    adc_init();
-    timer0_init();
-    _EINT();          //开总中断
-    delay_nms(500);
-    while(1)
-    {
-        display_THD();
-        // clock_test();
-    }
 }
 
