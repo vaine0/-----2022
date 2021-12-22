@@ -13,8 +13,8 @@
  *      2. 
  * PROB:1. 题目要求5次谐波, 但是5次谐波需要采样频率10kHz以上(FFT需要16kHz), 使用内部晶振不好达到
  *      2. 由于ad转换不能转换负压, 需将单片机GND设为负压
+ *      3. ref_time过快的话不行(不能比refresh_THD()快)
  * TODO:1. 推测因为采样频率不准导致THD过大. 目前采用硬延迟, 尝试使用中断.
- *      2. 改进算法, 浮点数计算过慢
  */
 
 #include <msp430g2553.h>
@@ -145,29 +145,52 @@ void sampling(int n)
 }
 
 /*
- * 用于开根求THD, THD一般都小于1
- * 1 >= n >= 0
- * 需要计算更大的开方就增大temp(0x0080<<a)和temp2(0x0040<<2a)
- * 本质上是二分法, 从高位到低位 判断二进制数的每一位为1或0
+ * 牛顿法求平方根
  */
 float my_sqrt(float n)
 {
-    float temp  = 0.5;  // 判断小数位第一位是不是1
-    float temp2 = 0.25; // temp的平方
-    float result  = 0.0;// 结果
-    float result2 = 0.0;// result的平方
-    while(temp2 != 0.0)
+    if (n <= 0.0)
     {
-        float temp_result2 = result2 + 2*result*temp + temp2;
-        if (temp_result2 <= n)
-        {
-            result += temp;
-            result2 = temp_result2;
-        }
-        temp  = temp  / 2; // 判断小数位下一位是不是1
-        temp2 = temp2 / 4;
+        return 0.0;
     }
-    return result;
+    const float _JINGDU = 1e-4;
+    float _avg = n;
+    float last_avg = n;
+    _avg = (_avg + n / _avg) / 2;
+    float temp = _avg - last_avg;
+	if (temp<0) temp = -temp;
+    while ( temp > _JINGDU)
+    {
+        last_avg = _avg;
+        _avg = (_avg + n / _avg) / 2;
+        temp = _avg - last_avg;
+        if (temp<0) temp = -temp;
+    }
+    return _avg;
+
+    /*
+    * **方法太慢, 弃用**
+    * 用于开根求THD, THD一般都小于1
+    * 1 >= n >= 0
+    * 需要计算更大的开方就增大temp(0x0080<<a)和temp2(0x0040<<2a)
+    * 本质上是二分法, 从高位到低位 判断二进制数的每一位为1或0
+    */
+    // float temp  = 0.5;  // 判断小数位第一位是不是1
+    // float temp2 = 0.25; // temp的平方
+    // float result  = 0.0;// 结果
+    // float result2 = 0.0;// result的平方
+    // while(temp2 != 0.0)
+    // {
+    //     float temp_result2 = result2 + 2*result*temp + temp2;
+    //     if (temp_result2 <= n)
+    //     {
+    //         result += temp;
+    //         result2 = temp_result2;
+    //     }
+    //     temp  = temp  / 2; // 判断小数位下一位是不是1
+    //     temp2 = temp2 / 4;
+    // }
+    // return result;
 }
 
 /*
