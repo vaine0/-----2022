@@ -1,5 +1,5 @@
 /*
- * 电子信息杯初赛代码
+ * 电子信息杯初赛代码 (由于ad转换不能转换负压, 需将单片机GND设为负压)
  * date: 2021/12/09
  * author: vaine
  * describe: 主循环中时钟使用display_THD()函数 在数码管上显示全局变量THD的值;
@@ -10,6 +10,7 @@
  *                先读取sample_num个采样值(采样频率sample_num*1kHz), 并格式化为float;
  *                再DFT得到各频率分量; 最后根据频率分量计算THD(开方使用二分法)
  */
+// TODO 推测因为采样频率不对导致THD过大
 
 #include <msp430g2553.h>
 
@@ -23,7 +24,7 @@ const unsigned char display_num[10] = {0x03, 0x9F, 0x25, 0x0D, 0x99, 0x49, 0x41,
 const float Cos[sample_num] = {1.000, 0.707, 0.000, -0.707, -1.000, -0.707, 0.000, 0.707};
 const float Sin[sample_num] = {0.000, 0.707, 1.000, 0.707, 0.000, -0.707, -1.000, -0.707};
 const unsigned int  ref_time  = 1000 / 100;      // THD刷新时间间隔; n ms / 100 (防止溢出)
-const float ref_vcc = 3300.0; // ad参考电压
+const float ref_vcc = 3.3; // ad参考电压
 
 float THD = 0.000; // 全局变量THD, display_THD()始终显示THD; 计算函数refresh_THD()在计时中断进入, 不断更新算得的THD
 int sample_points[sample_num];
@@ -112,9 +113,9 @@ void timer0_init()
  */
 void adc_init(void)
 {
-    ADC10CTL0 = 0xA0 + ADC10SHT_2 + ADC10ON + ADC10IE; // ADC10ON, interrupt enabled
-    ADC10CTL1 = ADC10DF + INCH_6; 		// Conversion code signed format, input A6
-    ADC10AE0 |= BIT6;				// P1.6 ADC option select
+    ADC10CTL0 = SREF_0 + ADC10SHT_2 + ADC10ON; // ADC10ON, interrupt enabled
+    ADC10CTL1 = INCH_6; // Conversion code signed format, input A6
+    ADC10AE0 |= BIT6;   // P1.6 ADC option select
     ADC10CTL0 |= ENC;
 }
 
@@ -163,7 +164,7 @@ void refresh_THD(void)
     // 将采样点值变为浮点数存在sample_nums[]
     for(i=0; i<sample_num; i++)
     {
-        sample_nums[i] = (float)(sample_points[i]>>6) / 1023.0 * ref_vcc;
+        sample_nums[i] = (float)(sample_points[i]) / 1023.0 * ref_vcc;
     }
     // DFT提取频率分量
     float real[5] = {0.00, 0.00, 0.00, 0.00, 0.00};
@@ -183,7 +184,7 @@ void refresh_THD(void)
     THD += imag[2]*imag[2] + imag[3]*imag[3] + imag[4]*imag[4];
     THD /= real[1]*real[1] + imag[1]*imag[1];
     // TODO 开根号
-    // THD = sample_nums[0];
+    //THD = sample_nums[1];
     P2OUT = 0xFF;
     P3OUT = 0x00;
 }
@@ -232,18 +233,18 @@ void display_THD(void)
 /*
  * 测试时钟频率, 找到能够达到采样频率的延迟
  */
-void clock_test(void)
+void clock_test(void) // TODO 有问题, 但不知道哪里有问题
 {
     int i = 0;
     // 开始
     P3OUT &= ~BIT4; // Clear P3.4 LED off
-    for(; i<sample_num*3000; i++)// 3k次8次8kHz采样, 应该花费3s
+    for(i=0; i<sample_num*3000; i++)// 3k次8次8kHz采样, 应该花费3s
     {
         sampling(i);
         int j = 0;
-        while(j<5)// j<5
+        while(j<sample_gap)// j<5
         {
-        j++;
+            j++;
         }
     }
     P3OUT |= BIT4; // Set P3.4 LED on
@@ -266,7 +267,7 @@ int main(void)
     while(1)
     {
         display_THD();
-        //clock_test();
+        // clock_test();
     }
 }
 
