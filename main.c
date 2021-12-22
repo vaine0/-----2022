@@ -10,11 +10,11 @@
  *                先读取sample_num个采样值(采样频率sample_num*1kHz), 并格式化为float;
  *                再DFT得到各频率分量; 最后根据频率分量计算THD(开方使用二分法)
  * TIPs:1. 采样尽量快, 因为单片机时钟频率有点低, 采样频率有可能达不到 (可以尝试使用 外部晶振 & 中断采样)
- *      2. 
  * PROB:1. 题目要求5次谐波, 但是5次谐波需要采样频率10kHz以上(FFT需要16kHz), 使用内部晶振不好达到
  *      2. 由于ad转换不能转换负压, 需将单片机GND设为负压
  *      3. ref_time过快的话不行(不能比refresh_THD()快)
  * TODO:1. 推测因为采样频率不准导致THD过大. 目前采用硬延迟, 尝试使用中断.
+ *      2. 用FFT试试能不能提速
  */
 
 #include <msp430g2553.h>
@@ -24,7 +24,7 @@
 #define sample_num 8 // 改变sample_num还需调整sample_gap, Cos[], Sin[]
 // 改变sample_num需要手动调整sample_gap, 使采样频率达到sample_num*1kHz
 const unsigned int sample_gap = 4; // 时钟测试得到 5 对应采样频率8kHz, 但发现改成 4 THD更准
-const unsigned int  ref_time  = 1000 / 100;      // THD刷新时间间隔; n ms / 100 (防止溢出)
+const unsigned int  ref_time  = 1000 / 100;      // THD刷新时间间隔; n ms / 100 (防止溢出)(尽量大于500ms)
 const float ref_vcc = 3.3; // ad参考电压; V
 
 const unsigned char display_pos[3] = {BIT1, BIT2, BIT3};
@@ -46,7 +46,6 @@ float my_sqrt(float n);
 void refresh_THD(void);
 void display_THD(void);
 void clock_test(void);
-
 
 /*
  * 主函数
