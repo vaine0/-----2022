@@ -11,6 +11,7 @@
  *                再DFT得到各频率分量; 最后根据频率分量计算THD(开方使用二分法)
  */
 // TODO 推测因为采样频率不准导致THD过大
+// TODO 改进算法, 浮点数计算过慢
 
 #include <msp430g2553.h>
 
@@ -140,6 +141,32 @@ void sampling(int n)
 }
 
 /*
+ * 用于开根求THD, THD一般都小于1
+ * 1 >= n >= 0
+ * 需要计算更大的开方就增大temp(0x0080<<a)和temp2(0x0040<<2a)
+ * 本质上是二分法, 从高位到低位 判断二进制数的每一位为1或0
+ */
+float my_sqrt(float n)
+{
+    float temp  = 0.5;  // 判断小数位第一位是不是1
+    float temp2 = 0.25; // temp的平方
+    float result  = 0.0;// 结果
+    float result2 = 0.0;// result的平方
+    while(temp2 != 0.0)
+    {
+        float temp_result2 = result2 + 2*result*temp + temp2;
+        if (temp_result2 <= n)
+        {
+            result += temp;
+            result2 = temp_result2;
+        }
+        temp  = temp  / 2; // 判断小数位下一位是不是1
+        temp2 = temp2 / 4;
+    }
+    return result;
+}
+
+/*
  * 刷新THD.
  * 先读取sample_num个采样值
  * 再DFT得到各频率分量
@@ -184,8 +211,9 @@ void refresh_THD(void)
     THD =  real[2]*real[2] + real[3]*real[3] + real[4]*real[4];
     THD += imag[2]*imag[2] + imag[3]*imag[3] + imag[4]*imag[4];
     THD /= real[1]*real[1] + imag[1]*imag[1];
-    // TODO 开根号
-    //THD = sample_nums[1];
+    // 开根号
+    // THD = 0.5;
+    THD = my_sqrt(THD);
     P2OUT = 0xFF;
     P3OUT = 0x00;
 }
