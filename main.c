@@ -36,15 +36,50 @@ float THD = 0.000; // 全局变量THD, display_THD()始终显示THD; 计算函数refresh_THD
 int sample_points[sample_num];
 float sample_nums[sample_num];
 
-void delay_1ms(void);
-void delay_nms(unsigned int k);
-void GPIO_Init(void);
-void timer0_init();
-void adc_init(void);
-void sampling(int n);
-float my_sqrt(float n);
+/*
+ * 刷新THD.
+ * 先读取sample_num个采样值
+ * 再DFT得到各频率分量
+ * 最后根据频率分量计算THD
+ */
 void refresh_THD(void);
+/*
+ * 数码管显示 float THD (只显示 个位 & 小数部分前三位)
+ * 1 > THD >= 0
+ * 可能由于浮点数精度出现输出!=输入, 但是最多差0.001
+ */
 void display_THD(void);
+/*
+ * 1ms延时函数
+ */
+void delay_1ms(void);
+/*
+ * nms延时函数
+ */
+void delay_nms(unsigned int k);
+/*
+ * 引脚初始化函数
+ */
+void GPIO_Init(void);
+/*
+ * 定时器中断初始化
+ */
+void timer0_init();
+/*
+ * AD转换初始化
+ */
+void adc_init(void);
+/*
+ * 采样一次, 并将采样结果存入sample_points[n]
+ */
+void sampling(int n);
+/*
+ * 牛顿法求平方根
+ */
+float my_sqrt(float n);
+/*
+ * 测试时钟频率, 找到能够达到采样频率的延迟
+ */
 void clock_test(void);
 
 /*
@@ -65,12 +100,6 @@ int main(void)
     }
 }
 
-
-/*
- * 数码管显示 float THD (只显示 个位 & 小数部分前三位)
- * 1 > THD >= 0
- * 可能由于浮点数精度出现输出!=输入, 但是最多差0.001
- */
 void display_THD(void)
 {
     float n = THD;
@@ -94,7 +123,6 @@ void display_THD(void)
     }
 }
 
-
 /*
  * 定时器中断响应函数, 定时刷新THD的值
  */
@@ -105,13 +133,6 @@ __interrupt void Timer0_A0(void)
     // P3OUT ^= BIT4;
 }
 
-
-/*
- * 刷新THD.
- * 先读取sample_num个采样值
- * 再DFT得到各频率分量
- * 最后根据频率分量计算THD
- */
 void refresh_THD(void)
 {
     // 数码管显示 '----'
@@ -160,10 +181,6 @@ void refresh_THD(void)
     P3OUT = 0x00;
 }
 
-
-/*
- * 牛顿法求平方根
- */
 float my_sqrt(float n)
 {
     if (n <= 0.0)
@@ -210,10 +227,6 @@ float my_sqrt(float n)
     // return result;
 }
 
-
-/*
- * 测试时钟频率, 找到能够达到采样频率的延迟
- */
 void clock_test(void) // TODO 有问题, 但不知道哪里有问题
 {
     int i = 0;
@@ -233,18 +246,12 @@ void clock_test(void) // TODO 有问题, 但不知道哪里有问题
     delay_nms(100);
 }
 
-/*
- * 1ms延时函数
- */
 void delay_1ms(void)
 {
     unsigned int i;
     for (i = 0; i < 92; i++); //92
 }
 
-/*
- * nms延时函数
- */
 void delay_nms(unsigned int k)
 {
     unsigned int i;
@@ -254,18 +261,12 @@ void delay_nms(unsigned int k)
     }
 }
 
-/*
- * 引脚初始化函数
- */
 void GPIO_Init(void)
 {
     P2DIR|=BIT0+BIT1+BIT2+BIT3+BIT4+BIT5+BIT6+BIT7; // 设为输出(亮灯)
     P3DIR|=BIT0+BIT1+BIT2+BIT3+BIT4; // 设为输出(片选)
 }
 
-/*
- * 定时器初始化
- */
 void timer0_init()
 {
     /*
@@ -311,9 +312,6 @@ void timer0_init()
     // P3DIR |= BIT4;
 }
 
-/*
- * AD转换初始化
- */
 void adc_init(void)
 {
     ADC10CTL0 = SREF_0 + ADC10SHT_2 + ADC10ON; // ADC10ON, interrupt enabled
@@ -322,9 +320,6 @@ void adc_init(void)
     ADC10CTL0 |= ENC;
 }
 
-/*
- * 采样一次, 并将采样结果存入sample_points[n]
- */
 void sampling(int n)
 {
     ADC10CTL0 |= ADC10SC; // Sampling and conversion start
