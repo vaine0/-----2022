@@ -9,23 +9,27 @@
  * refresh_THD(): 刷新THD的值.
  *                先读取sample_num个采样值(采样频率sample_num*1kHz), 并格式化为float;
  *                再DFT得到各频率分量; 最后根据频率分量计算THD(开方使用二分法)
+ * TIPs:1. 采样尽量快, 因为单片机时钟频率有点低, 采样频率有可能达不到 (可以尝试使用 外部晶振 & 中断采样)
+ *      2. 
+ * PROB:1. 题目要求5次谐波, 但是5次谐波需要采样频率10kHz以上(FFT需要16kHz), 使用内部晶振不好达到
+ *      2. 由于ad转换不能转换负压, 需将单片机GND设为负压
+ * TODO:1. 推测因为采样频率不准导致THD过大. 目前采用硬延迟, 尝试使用中断.
+ *      2. 改进算法, 浮点数计算过慢
  */
-// TODO 推测因为采样频率不准导致THD过大
-// TODO 改进算法, 浮点数计算过慢
 
 #include <msp430g2553.h>
 
 // 采样点数
-#define sample_num 8
+#define sample_num 8 // 改变sample_num还需调整sample_gap, Cos[], Sin[]
 // 改变sample_num需要手动调整sample_gap, 使采样频率达到sample_num*1kHz
-const unsigned int sample_gap = 5; // 5对应采样频率8kHz
+const unsigned int sample_gap = 4; // 时钟测试得到 5 对应采样频率8kHz, 但发现改成 4 THD更准
+const unsigned int  ref_time  = 1000 / 100;      // THD刷新时间间隔; n ms / 100 (防止溢出)
+const float ref_vcc = 3.3; // ad参考电压; V
 
 const unsigned char display_pos[3] = {BIT1, BIT2, BIT3};
 const unsigned char display_num[10] = {0x03, 0x9F, 0x25, 0x0D, 0x99, 0x49, 0x41, 0x1F, 0x01, 0x09};
 const float Cos[sample_num] = {1.000, 0.707, 0.000, -0.707, -1.000, -0.707, 0.000, 0.707};
 const float Sin[sample_num] = {0.000, 0.707, 1.000, 0.707, 0.000, -0.707, -1.000, -0.707};
-const unsigned int  ref_time  = 1000 / 100;      // THD刷新时间间隔; n ms / 100 (防止溢出)
-const float ref_vcc = 3.3; // ad参考电压
 
 float THD = 0.000; // 全局变量THD, display_THD()始终显示THD; 计算函数refresh_THD()在计时中断进入, 不断更新算得的THD
 int sample_points[sample_num];
