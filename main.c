@@ -175,8 +175,9 @@ void refresh_THD(void)
     {
         for(n=0; n<8; n++)
         {
-        real[k] += sample_nums[n]*Cos[n*k];
-        imag[k] += sample_nums[n]*Sin[n*k];
+            int idx = (n*k) % sample_num; // (n*k) mod sample_num
+            real[k] += sample_nums[n]*Cos[idx];
+            imag[k] += sample_nums[n]*Sin[idx];
         }
     }
     // ¼ÆËãTHD
